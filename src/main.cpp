@@ -72,6 +72,7 @@ int main(int argc, char **argv)
   projectPointCloudToImage(cloud_input, transformation, qrDetectPtr->cameraMatrix_, qrDetectPtr->distCoeffs_, img_input, colored_cloud);
 
   saveCalibrationResults(params, transformation, colored_cloud, qrDetectPtr->imageCopy_);
+  saveCircleCenters(params, lidar_centers, qr_centers);
 
   auto colored_cloud_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("colored_cloud", 1);
   auto aligned_lidar_centers_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("aligned_lidar_centers", 1);

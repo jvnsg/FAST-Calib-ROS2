@@ -14,6 +14,8 @@ which is included as part of this source code package.
 #include <pcl/point_types.h>
 #include <pcl/common/centroid.h>
 #include <cmath>
+#include <chrono>
+#include <ctime>
 
 #include "color.h"
 
@@ -484,5 +486,52 @@ void save2PLY(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const std::string &file
   {
     pcl::io::savePLYFile(filename, *cloud);
   }
+}
+
+// Append sorted lidar and QR circle centers to circle_center_record.txt for
+// multi-scene joint calibration.
+void saveCircleCenters(const Params &params,
+                       const pcl::PointCloud<pcl::PointXYZ>::Ptr &lidar_centers,
+                       const pcl::PointCloud<pcl::PointXYZ>::Ptr &qr_centers)
+{
+  if (lidar_centers->size() != 4 || qr_centers->size() != 4)
+  {
+    std::cerr << BOLDRED << "[saveCircleCenters] Expected 4 centers each, got "
+              << lidar_centers->size() << " lidar / " << qr_centers->size()
+              << " qr. Skipping." << RESET << std::endl;
+    return;
+  }
+
+  std::string outputDir = params.output_path;
+  if (outputDir.back() != '/') outputDir += '/';
+
+  std::ofstream outFile(outputDir + "circle_center_record.txt", std::ios::app);
+  if (!outFile.is_open())
+  {
+    std::cerr << BOLDRED << "[Error] Failed to open circle_center_record.txt for writing!" << RESET << std::endl;
+    return;
+  }
+
+  auto now = std::chrono::system_clock::now();
+  std::time_t t = std::chrono::system_clock::to_time_t(now);
+  std::string timestr = std::ctime(&t);
+  timestr.erase(timestr.find_last_not_of("\n\r") + 1);
+  outFile << "time: " << timestr << "\n";
+
+  outFile << "lidar_centers:";
+  for (const auto &pt : *lidar_centers)
+    outFile << " {" << std::fixed << std::setprecision(6)
+            << pt.x << "," << pt.y << "," << pt.z << "}";
+  outFile << "\n";
+
+  outFile << "qr_centers:";
+  for (const auto &pt : *qr_centers)
+    outFile << " {" << std::fixed << std::setprecision(6)
+            << pt.x << "," << pt.y << "," << pt.z << "}";
+  outFile << "\n";
+
+  outFile.close();
+  std::cout << BOLDYELLOW << "[Info] Circle centers appended to: " << BOLDWHITE
+            << outputDir << "circle_center_record.txt" << RESET << std::endl;
 }
 #endif

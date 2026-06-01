@@ -30,25 +30,28 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 endif()
 
-# Create executable
+# Create executables
 add_executable(fast_calib src/main.cpp)
+add_executable(multi_fast_calib src/multi_scene.cpp)
 
 # Link libraries
-ament_target_dependencies(fast_calib
-  rclcpp
-  sensor_msgs
-  pcl_conversions
-  rosbag2_cpp
-)
-
-target_link_libraries(fast_calib
-  ${PCL_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
+foreach(target fast_calib multi_fast_calib)
+  ament_target_dependencies(${target}
+    rclcpp
+    sensor_msgs
+    pcl_conversions
+    rosbag2_cpp
+  )
+  target_link_libraries(${target}
+    ${PCL_LIBRARIES}
+    ${OpenCV_LIBRARIES}
+  )
+endforeach()
 
 # Install
 install(TARGETS
   fast_calib
+  multi_fast_calib
   DESTINATION lib/${PROJECT_NAME}
 )
 
