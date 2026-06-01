@@ -32,7 +32,7 @@ private:
     rclcpp::Node::SharedPtr node_;
     std::string output_path_;
 
-    // 存储中间结果的点云
+    // Point clouds storing intermediate pipeline results
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud_;
     pcl::PointCloud<pcl::PointXYZ>::Ptr plane_cloud_;
     pcl::PointCloud<pcl::PointXYZ>::Ptr aligned_cloud_;
@@ -74,25 +74,25 @@ public:
 
     void detect_lidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr center_cloud)
     {
-        // 1. X、Y、Z方向滤波
+        // 1. Pass-through filter in X, Y, Z
         filtered_cloud_->reserve(cloud->size());
 
         pcl::PassThrough<pcl::PointXYZ> pass_x;
         pass_x.setInputCloud(cloud);
         pass_x.setFilterFieldName("x");
-        pass_x.setFilterLimits(x_min_, x_max_); // 设置X轴范围
+        pass_x.setFilterLimits(x_min_, x_max_); // X-axis range
         pass_x.filter(*filtered_cloud_);
 
         pcl::PassThrough<pcl::PointXYZ> pass_y;
         pass_y.setInputCloud(filtered_cloud_);
         pass_y.setFilterFieldName("y");
-        pass_y.setFilterLimits(y_min_, y_max_); // 设置Y轴范围
+        pass_y.setFilterLimits(y_min_, y_max_); // Y-axis range
         pass_y.filter(*filtered_cloud_);
 
         pcl::PassThrough<pcl::PointXYZ> pass_z;
         pass_z.setInputCloud(filtered_cloud_);
         pass_z.setFilterFieldName("z");
-        pass_z.setFilterLimits(z_min_, z_max_); // 设置Z轴范围
+        pass_z.setFilterLimits(z_min_, z_max_); // Z-axis range
         pass_z.filter(*filtered_cloud_);
 
         RCLCPP_INFO(node_->get_logger(), "Filtered cloud size: %ld", filtered_cloud_->size());
@@ -103,7 +103,7 @@ public:
         voxel_filter.filter(*filtered_cloud_);
         RCLCPP_INFO(node_->get_logger(), "Filtered cloud size: %ld", filtered_cloud_->size());
         save2PLY(filtered_cloud_, output_path_ + "filtered_cloud.ply");
-        // 2. 平面分割
+        // 2. Plane segmentation
         plane_cloud_->reserve(filtered_cloud_->size());
 
         pcl::ModelCoefficients::Ptr plane_coefficients(new pcl::ModelCoefficients);
@@ -111,7 +111,7 @@ public:
         pcl::SACSegmentation<pcl::PointXYZ> plane_segmentation;
         plane_segmentation.setModelType(pcl::SACMODEL_PLANE);
         plane_segmentation.setMethodType(pcl::SAC_RANSAC);
-        plane_segmentation.setDistanceThreshold(0.01); // 平面分割阈值
+        plane_segmentation.setDistanceThreshold(0.01); // Plane inlier distance threshold
         plane_segmentation.setInputCloud(filtered_cloud_);
         plane_segmentation.segment(*plane_inliers, *plane_coefficients);
 
@@ -121,7 +121,7 @@ public:
         extract.filter(*plane_cloud_);
         RCLCPP_INFO(node_->get_logger(), "Plane cloud size: %ld", plane_cloud_->size());
         save2PLY(plane_cloud_, output_path_ + "plane_cloud.ply");
-        // 3. 平面点云对齐
+        // 3. Align plane point cloud to Z=0
         aligned_cloud_->reserve(plane_cloud_->size());
 
         Eigen::Vector3d normal(plane_coefficients->values[0],
@@ -136,7 +136,7 @@ public:
         Eigen::AngleAxisd rotation(angle, axis);
         Eigen::Matrix3d R = rotation.toRotationMatrix();
 
-        // 应用旋转矩阵，将平面对齐到 Z=0 平面
+        // Apply rotation matrix to align the detected plane to Z=0
         float average_z = 0.0;
         int cnt = 0;
         for (const auto &pt : *plane_cloud_)
@@ -149,21 +149,21 @@ public:
         }
         average_z /= cnt;
         save2PLY(aligned_cloud_, output_path_ + "aligned_cloud.ply");
-        // 4. 提取边缘点
+        // 4. Extract boundary points
         edge_cloud_->reserve(aligned_cloud_->size());
 
         pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
         pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
         normal_estimator.setInputCloud(aligned_cloud_);
-        normal_estimator.setRadiusSearch(0.03); // 设置法线估计的搜索半径
+        normal_estimator.setRadiusSearch(0.03); // Normal estimation search radius
         normal_estimator.compute(*normals);
 
         pcl::PointCloud<pcl::Boundary> boundaries;
         pcl::BoundaryEstimation<pcl::PointXYZ, pcl::Normal, pcl::Boundary> boundary_estimator;
         boundary_estimator.setInputCloud(aligned_cloud_);
         boundary_estimator.setInputNormals(normals);
-        boundary_estimator.setRadiusSearch(0.03);       // 设置边界检测的搜索半径
-        boundary_estimator.setAngleThreshold(M_PI / 4); // 设置角度阈值
+        boundary_estimator.setRadiusSearch(0.03);       // Boundary detection search radius
+        boundary_estimator.setAngleThreshold(M_PI / 4); // Boundary angle threshold
         boundary_estimator.compute(boundaries);
 
         for (size_t i = 0; i < aligned_cloud_->size(); ++i)
@@ -175,26 +175,26 @@ public:
         }
         RCLCPP_INFO(node_->get_logger(), "Extracted %ld edge points.", edge_cloud_->size());
         save2PLY(edge_cloud_, output_path_ + "edge_cloud.ply");
-        // 5. 对边缘点进行聚类
+        // 5. Euclidean clustering of boundary points
         pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
         tree->setInputCloud(edge_cloud_);
 
         std::vector<pcl::PointIndices> cluster_indices;
         pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-        ec.setClusterTolerance(0.02); // 设置聚类距离阈值
-        ec.setMinClusterSize(50);     // 最小点数
-        ec.setMaxClusterSize(1000);   // 最大点数
+        ec.setClusterTolerance(0.02); // Cluster distance tolerance
+        ec.setMinClusterSize(50);     // Minimum cluster size
+        ec.setMaxClusterSize(1000);   // Maximum cluster size
         ec.setSearchMethod(tree);
         ec.setInputCloud(edge_cloud_);
         ec.extract(cluster_indices);
 
         RCLCPP_INFO(node_->get_logger(), "Number of edge clusters: %ld", cluster_indices.size());
 
-        // 6. 对每个聚类进行圆拟合
+        // 6. Fit a circle to each cluster and recover hole centers
         center_z0_cloud_->reserve(4);
         Eigen::Matrix3d R_inv = R.inverse();
 
-        // 对每个聚类进行圆拟合
+        // Fit a circle to each boundary cluster
         for (size_t i = 0; i < cluster_indices.size(); ++i)
         {
             pcl::PointCloud<pcl::PointXYZ>::Ptr cluster(new pcl::PointCloud<pcl::PointXYZ>);
@@ -203,43 +203,43 @@ public:
                 cluster->push_back(edge_cloud_->points[idx]);
             }
 
-            // 圆拟合
+            // Circle fitting via RANSAC
             pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
             pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
             pcl::SACSegmentation<pcl::PointXYZ> seg;
             seg.setOptimizeCoefficients(true);
             seg.setModelType(pcl::SACMODEL_CIRCLE2D);
             seg.setMethodType(pcl::SAC_RANSAC);
-            seg.setDistanceThreshold(0.01); // 设置距离阈值
-            seg.setMaxIterations(1000);     // 设置最大迭代次数
+            seg.setDistanceThreshold(0.01); // Inlier distance threshold
+            seg.setMaxIterations(1000);     // Maximum RANSAC iterations
             seg.setInputCloud(cluster);
             seg.segment(*inliers, *coefficients);
 
             if (inliers->indices.size() > 0)
             {
-                // 计算拟合误差
+                // Compute mean radial fitting error
                 double error = 0.0;
                 for (const auto &idx : inliers->indices)
                 {
                     double dx = cluster->points[idx].x - coefficients->values[0];
                     double dy = cluster->points[idx].y - coefficients->values[1];
-                    double distance = sqrt(dx * dx + dy * dy) - circle_radius_; // 距离误差
+                    double distance = sqrt(dx * dx + dy * dy) - circle_radius_; // Radial distance error
                     error += abs(distance);
                 }
                 error /= inliers->indices.size();
 
-                // 如果拟合误差较小，则认为是一个圆洞
+                // Accept cluster as a valid hole if mean error is small enough
                 std::cout << "inliers->indices.size() " << inliers->indices.size() << " " << error << std::endl;
                 if (error < 0.02)
                 {
-                    // 将恢复后的圆心坐标添加到点云中
+                    // Add the recovered circle center (in aligned frame) to cloud
                     pcl::PointXYZ center_point;
                     center_point.x = coefficients->values[0];
                     center_point.y = coefficients->values[1];
                     center_point.z = 0.0;
                     center_z0_cloud_->push_back(center_point);
 
-                    // 将圆心坐标逆变换回原始坐标系
+                    // Inverse-transform circle center back to the original LiDAR frame
                     Eigen::Vector3d aligned_point(center_point.x, center_point.y, center_point.z + average_z);
                     Eigen::Vector3d original_point = R_inv * aligned_point;
 
@@ -253,7 +253,7 @@ public:
         }
     }
 
-    // 获取中间结果的点云
+    // Accessors for intermediate pipeline clouds (used for debug publishing)
     pcl::PointCloud<pcl::PointXYZ>::Ptr getFilteredCloud() const { return filtered_cloud_; }
     pcl::PointCloud<pcl::PointXYZ>::Ptr getPlaneCloud() const { return plane_cloud_; }
     pcl::PointCloud<pcl::PointXYZ>::Ptr getAlignedCloud() const { return aligned_cloud_; }
